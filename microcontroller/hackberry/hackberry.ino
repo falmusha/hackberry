@@ -27,7 +27,6 @@ AltSoftSerial btSerial = AltSoftSerial(BLUETOOTH_TX, BLUETOOTH_RX);
 
 Adafruit_VC0706 cam = Adafruit_VC0706(&camera_connection);
 
-char buf[BUF_SIZE];
 
 int setup_sd(void) {
 
@@ -53,9 +52,9 @@ int setup_camera(void) {
   } 
 
   /* Choose camera setting */
-  //cam.setImageSize(VC0706_640x480);        // biggest
+  cam.setImageSize(VC0706_640x480);        // biggest
   /*cam.setImageSize(VC0706_320x240);        // medium*/
-  cam.setImageSize(VC0706_160x120);          // small
+  /*cam.setImageSize(VC0706_160x120);          // small*/
 
 }
 
@@ -84,34 +83,48 @@ void take_picture() {
 
   // Get the size of the image (frame) taken  
   uint16_t jpglen = cam.frameLength();
+  uint8_t jpglen_array[2];
+
+  // Copy higher 8 bits
+  jpglen_array[0] = jpglen >> 8;
+  // Copy lower 8 bits
+  jpglen_array[1] = jpglen;
+  // NULL terminal buffer
+  /*jpglen_array[2] = NULL;*/
+
   Serial.print("Storing ");
+  Serial.print(jpglen, HEX);
+  Serial.print(" = ");
   Serial.print(jpglen, DEC);
-  Serial.print(" byte image.");
+  Serial.println(" byte image.");
 
   int32_t time = millis();
 
-  // Read all the data up to # bytes!
-  // For counting # of writes
-  byte wCount = 0; 
+  while (!btSerial.available() && btSerial.read() != '1') {}
+
+  Serial.println("Sending ....");
+
+  btSerial.write(jpglen_array, sizeof(jpglen_array));
+
+  delay(10);
 
   while (jpglen > 0) {
 
-    // read 32 bytes at a time;
-    uint8_t *buffer;
+    uint8_t * buffer;
 
-    // change 32 to 64 for a speedup but may not work with all setups!
+    // Read 32 bytes at a time;
     uint8_t bytesToRead = min(32, jpglen); 
     buffer = cam.readPicture(bytesToRead);
-    delay(1);
+    delay(10);
+
+    // Write byte stream to serial port
     btSerial.write(buffer, bytesToRead);
-    delay(30);
 
-    // Every 2K, give a little feedback so it doesn't appear locked up
-    if(++wCount >= 64) { 
-      wCount = 0;
-    }
+    delay(90);
 
+    // Subtract sent bytes
     jpglen -= bytesToRead;
+
   }
 
   time = millis() - time;
@@ -153,9 +166,10 @@ void setup() {
 
   delay(300);
 
-  take_picture();
 }
 
 void loop() {
+  take_picture();
+  cam.reset();
 }
 
