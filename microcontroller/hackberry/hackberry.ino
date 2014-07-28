@@ -1,20 +1,15 @@
 #include <Adafruit_VC0706.h>
-#include <SD.h>
-#include <SPI.h>
 #include <SoftwareSerial.h>         
 #include <AltSoftSerial.h>
-
-// Adafruit SD shields and modules: pin 10
-#define chipSelect 10
 
 #define CAMERA_TX 2
 #define CAMERA_RX 3
 #define BLUETOOTH_TX 8
 #define BLUETOOTH_RX 9
 #define BLUETOOTH_STATE 4
+#define BLUETOOTH_EN 3
 #define BAUD_RATE 9600
-#define LED_PIN 7
-#define BUF_SIZE 64
+#define BUFF_SIZE 32
 // Using SoftwareSerial (Arduino 1.0+) or NewSoftSerial (Arduino 0023 & prior):
 #if ARDUINO >= 100
 // On Uno: camera TX connected to pin 2, camera RX to pin 3:
@@ -28,33 +23,25 @@ AltSoftSerial btSerial = AltSoftSerial(BLUETOOTH_TX, BLUETOOTH_RX);
 Adafruit_VC0706 cam = Adafruit_VC0706(&camera_connection);
 
 
-int setup_sd(void) {
-
-  // see if the card is present and can be initialized:
-  if (SD.begin(chipSelect)) {
-    Serial.println("Card is present");
-    return 0;
-  } else {
-    Serial.println("Failed, Card Not Found");
-    return -1;
-  } 
-}
-
 int setup_camera(void) {
 
   // Try to locate the camera
   if (cam.begin()) {
     Serial.println("Camera Found");
-    return 0;
   } else {
     Serial.println("Failed, Camera Not Found");
     return -1;
   } 
 
+  delay(100);
+
   /* Choose camera setting */
-  cam.setImageSize(VC0706_640x480);        // biggest
-  /*cam.setImageSize(VC0706_320x240);        // medium*/
-  /*cam.setImageSize(VC0706_160x120);          // small*/
+
+  /*cam.setImageSize(VC0706_640x480);        // biggest*/
+  cam.setImageSize(VC0706_320x240);        // medium
+  /*cam.setImageSize(VC0706_160x120);        // small*/
+
+  return 0;
 
 }
 
@@ -62,9 +49,13 @@ int setup_bluetooth() {
 
   // Bluetooth initialization:
   btSerial.begin(BAUD_RATE);
-  pinMode(LED_PIN, OUTPUT);
+
+  // Define pins
   pinMode(BLUETOOTH_STATE, INPUT);
-  delay(300);
+  pinMode(BLUETOOTH_EN, OUTPUT);
+
+  delay(100);
+
   if (btSerial.isListening()) {
     Serial.println("Bluetooth Found");
     return 0;
@@ -77,50 +68,53 @@ int setup_bluetooth() {
 
 void take_picture() {
 
+  int32_t large_delay_after_write = 50;
+  int32_t small_delay_after_write = 10;
+
   if (!cam.takePicture()) {
     Serial.println("Failed to snap!");
+    return;
   }
 
   // Get the size of the image (frame) taken  
   uint16_t jpglen = cam.frameLength();
+  uint16_t frame_size = jpglen;
   uint8_t jpglen_array[2];
 
   // Copy higher 8 bits
   jpglen_array[0] = jpglen >> 8;
+
   // Copy lower 8 bits
   jpglen_array[1] = jpglen;
-  // NULL terminal buffer
-  /*jpglen_array[2] = NULL;*/
 
-  Serial.print("Storing ");
+  Serial.print("Image size = ");
   Serial.print(jpglen, HEX);
   Serial.print(" = ");
-  Serial.print(jpglen, DEC);
-  Serial.println(" byte image.");
+  Serial.println(jpglen, DEC);
 
   int32_t time = millis();
 
+  // Wait for send command
   while (!btSerial.available() && btSerial.read() != '1') {}
-
-  Serial.println("Sending ....");
 
   btSerial.write(jpglen_array, sizeof(jpglen_array));
 
-  delay(10);
+  delay(small_delay_after_write);
 
   while (jpglen > 0) {
 
     uint8_t * buffer;
 
     // Read 32 bytes at a time;
-    uint8_t bytesToRead = min(32, jpglen); 
+    uint8_t bytesToRead = min(BUFF_SIZE, jpglen); 
     buffer = cam.readPicture(bytesToRead);
-    delay(10);
+
+    delay(small_delay_after_write);
 
     // Write byte stream to serial port
     btSerial.write(buffer, bytesToRead);
 
-    delay(90);
+    delay(large_delay_after_write);
 
     // Subtract sent bytes
     jpglen -= bytesToRead;
@@ -128,37 +122,29 @@ void take_picture() {
   }
 
   time = millis() - time;
+  int32_t total_delay = (frame_size/BUFF_SIZE)*(large_delay_after_write \
+      + small_delay_after_write) \
+      + small_delay_after_write;
 
-  Serial.println("done!");
-
+  Serial.print("Total time = ");
   Serial.print(time); 
-  
-  Serial.println(" ms elapsed");
+  Serial.print(" ms, Delay time = ");
+  Serial.print(total_delay); 
+  Serial.print(" ms, Transfer time = ");
+  Serial.println(time-total_delay); 
 
 }
 
 void setup() {
 
-  int err = 0;
-// When using hardware SPI, the SS pin MUST be set to an
-// output (even if not connected or used).  If left as a
-// floating input w/SPI on, this can cause lockuppage.
-#if !defined(SOFTWARE_SPI)
-  if(chipSelect != 10) pinMode(10, OUTPUT); // SS on Uno, etc.
-#endif
-
   Serial.begin(BAUD_RATE);
   Serial.println("-------[ Hackberry ]-------");
   
-  /*if ((err = setup_sd()) != 0) {*/
-    /*return;*/
-  /*} */
-  
-  if ((err = setup_camera()) != 0) {
+  if (setup_camera() != 0) {
     return;
   } 
 
-  if ((err = setup_bluetooth()) != 0) {
+  if (setup_bluetooth() != 0) {
     return;
   } 
 
@@ -169,7 +155,8 @@ void setup() {
 }
 
 void loop() {
-  take_picture();
   cam.reset();
+  delay(300);
+  take_picture();
 }
 

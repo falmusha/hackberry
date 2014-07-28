@@ -5,107 +5,100 @@ import io
 import struct
 import cStringIO
 
+class HackberrySerial:
 
-BAUD_RATE = 9600
-PORT_NAME = '/dev/tty.HC-06-DevB'
-BUFF_SIZE = 32
-FRAME_SIZE = 2
+  def __init__(self):
+    self.counter    = 0
+    self.baud_rate  = 9600
+    self.port_name  = '/dev/tty.HC-06-DevB'
+    self.buff_size  = 32
+    self.frame_size = 2
+    self.ser        = None
 
-counter = 0
-def stream_to_file(stream):
+  def connect(self):
+    # Hook serial port to bluetooth port
+    self.ser = serial.Serial(self.port_name, self.baud_rate, timeout=None)
 
-  global counter
-  counter += 1
-  filename = "IMAGE_"+str(counter)+".jpg"
+  def disconnect(self):
+    # Hook serial port to bluetooth port
+    self.ser.close()
 
-  with open(filename, 'wb') as f:
-    f.write(stream.getvalue())
+  def stream_to_file(self, stream):
 
-def serial_read_frame_size(ser_conn):
-
-  # Wait until port has data to read
-  while ser.inWaiting() <= 0:
-    pass
-
-  b = ser_conn.read(FRAME_SIZE)
-  return int(b.encode('hex'), 16)
-
-if __name__ == "__main__":
-
-  # Hook serial port to bluetooth port
-  ser = serial.Serial(PORT_NAME, BAUD_RATE, timeout=None)
-
-  
-  while True:
-    try:
-
-      f = cStringIO.StringIO()
-      ser.write('1');
-      jpg_len = serial_read_frame_size(ser)
-      if (jpg_len == 0):
-        f.close()
-        continue
-
-      frame_size = jpg_len
-      print "--> New Frame of size = "+str(jpg_len)
-      total_bytes_read = 0
-
-      while frame_size > 0:
-        bytes_to_read = min(BUFF_SIZE, frame_size)
-        buf = ser.read(bytes_to_read)
-        f.write(buf)
-        bytes_read = len(buf) 
-        frame_size -= bytes_read
-        total_bytes_read += bytes_read
-        if jpg_len == total_bytes_read:
-          if buf[-2:].encode('hex') == "ffd9":
-            print "Successful frame"
-          else:
-            print buf[-2:].encode('hex')
-            print buf.encode('hex')
-            print "!!!! ERROR n frame !!!!"
+    self.counter += 1
+    filename = "IMAGE_"+str(self.counter)+".jpg"
     
-      stream_to_file(f)
-      f.close()
-    except KeyboardInterrupt:
-      ser.close()
-      f.close()
+    print 'Writing image to file '+filename
 
-  #ser.close()
-  #ser.flush()
+    with open(filename, 'wb') as f:
+      f.write(stream.getvalue())
 
-  #f = open('pic.jpg', 'w')
-  #c = open('size', 'w')
+  def read_frame_size(self):
 
-  #ser.write('1');
+    # Wait until port has data to read
+    while self.ser.inWaiting() <= 0:
+      pass
+
+    size_in_bytes = self.ser.read(self.frame_size)
+    return int(size_in_bytes.encode('hex'), 16)
+
+  def send_take_picture_cmd(self):
+      self.ser.write('1')
   
-  #while ser.inWaiting() <= 0:
-    #pass
+  def read_frame(self, stream):
 
-  #count = 0
-  #wrote_size = False
+    self.send_take_picture_cmd()
 
-  #try:
-    #while True:
-      
-      ##frame_length = 0
-      ##while ser.inWaiting() > 0 and not wrote_size:
-        ##buf = ser.read(FRAME_SIZE)
-        ##c.write(buf)
-        ##break
-        
+    jpg_len = self.read_frame_size()
 
-      ##raise KeyboardInterrupt
+    if (jpg_len == 0):
+      return None
 
-      #while ser.inWaiting() > 0:
-        #buf = ser.read(BUFF_SIZE)
-        #f.write(buf)
-        #count += len(buf)
+    frame_size = jpg_len
+    print "--> New Frame of size = "+str(jpg_len)
+    total_bytes_read = 0
 
-  #except KeyboardInterrupt:
-    #print '\nClosing serial port and file'
-    #f.close()
-    #c.close()
-    #ser.close()
-    #print str(count)
+    while frame_size > 0:
+      bytes_to_read = min(self.buff_size, frame_size)
+
+      while self.ser.inWaiting() < bytes_to_read:
+        pass
+
+      buf = self.ser.read(bytes_to_read)
+      stream.write(buf)
+      bytes_read = len(buf) 
+      frame_size -= bytes_read
+      total_bytes_read += bytes_read
+      if jpg_len == total_bytes_read:
+        if buf[-2:].encode('hex') == "ffd9":
+          print "Successful frame"
+          return True
+        else:
+          # TODO: signal microController to resend
+          print buf[-2:].encode('hex')
+          print buf.encode('hex')
+          print "!!!! ERROR n frame !!!!"
+          return False
+
+  def get_frame(self):
+
+    stream = cStringIO.StringIO()
+    if self.read_frame(stream):
+      self.stream_to_file(stream)
+    stream.close()
+
+    
+if __name__ == '__main__':
+
+  print 'hello, this is hackberry'
+
+  hackberry = HackberrySerial()
+
+  try: 
+    while True:
+      hackberry.connect()
+      hackberry.get_frame()
+
+  except KeyboardInterrupt:
+    hackberry.disconnect()
 
