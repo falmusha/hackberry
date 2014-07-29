@@ -12,13 +12,19 @@ if __name__ == '__main__':
   hackberry_ser.connect()
 
   hackberry_cv = HackberryCV()
+  hackberry_cv.init_surf()
+  hackberry_cv.init_fast()
+
 
   stream = cStringIO.StringIO()
   hackberry_ser.read_frame(stream)
-  img = hackberry_cv.surf_keypoints(stream)
+  frame = hackberry_cv.stream_to_np_array(stream)
+  img = hackberry_cv.surf_keypoints(frame)
+  img2 = hackberry_cv.fast_keypoints(frame)
   stream.close()
 
   cv2.imshow('SURF', img)
+  cv2.imshow('FAST', img2)
 
   try: 
     while True:
@@ -26,11 +32,15 @@ if __name__ == '__main__':
       if key == 27:
         break
       elif key == 32:
+        print "++++ Take new picture"
         s = cStringIO.StringIO()
         hackberry_ser.read_frame(s)
-        img = hackberry_cv.surf_keypoints(s)
+        frame = hackberry_cv.stream_to_np_array(s)
+        img = hackberry_cv.surf_keypoints(frame)
+        img2 = hackberry_cv.fast_keypoints(frame)
         s.close()
         cv2.imshow('SURF', img)
+        cv2.imshow('FAST', img2)
 
 
 

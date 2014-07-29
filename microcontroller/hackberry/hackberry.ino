@@ -8,6 +8,7 @@
 #define BLUETOOTH_RX 9
 #define BLUETOOTH_STATE 4
 #define BLUETOOTH_EN 3
+#define LED_PIN 7
 #define BAUD_RATE 9600
 #define BUFF_SIZE 32
 // Using SoftwareSerial (Arduino 1.0+) or NewSoftSerial (Arduino 0023 & prior):
@@ -63,6 +64,9 @@ int setup_bluetooth() {
 
 void take_picture() {
 
+  // Wait for send command
+  while (!btSerial.available() && btSerial.read() != '1') {}
+
   /* Choose camera setting */
 
   /*cam.setImageSize(VC0706_640x480);        // biggest*/
@@ -72,10 +76,12 @@ void take_picture() {
   int32_t large_delay_after_write = 50;
   int32_t small_delay_after_write = 10;
 
+  digitalWrite(LED_PIN, HIGH);
   if (!cam.takePicture()) {
     Serial.println("Failed to snap!");
     return;
   }
+  digitalWrite(LED_PIN, LOW);
 
   // Get the size of the image (frame) taken  
   uint16_t jpglen = cam.frameLength();
@@ -94,9 +100,6 @@ void take_picture() {
   Serial.println(jpglen, DEC);
 
   int32_t time = millis();
-
-  // Wait for send command
-  while (!btSerial.available() && btSerial.read() != '1') {}
 
   btSerial.write(jpglen_array, sizeof(jpglen_array));
 
@@ -148,6 +151,8 @@ void setup() {
   if (setup_bluetooth() != 0) {
     return;
   } 
+
+  pinMode(LED_PIN, OUTPUT);
 
   while(!Serial) {}
 

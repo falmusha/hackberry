@@ -43,6 +43,7 @@ class HackberrySerial:
     return int(size_in_bytes.encode('hex'), 16)
 
   def send_take_picture_cmd(self):
+      print " X Send take picture command"
       self.ser.write('1')
   
   def read_frame(self, stream):
