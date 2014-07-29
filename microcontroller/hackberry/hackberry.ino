@@ -35,11 +35,6 @@ int setup_camera(void) {
 
   delay(100);
 
-  /* Choose camera setting */
-
-  /*cam.setImageSize(VC0706_640x480);        // biggest*/
-  cam.setImageSize(VC0706_320x240);        // medium
-  /*cam.setImageSize(VC0706_160x120);        // small*/
 
   return 0;
 
@@ -67,6 +62,12 @@ int setup_bluetooth() {
 }
 
 void take_picture() {
+
+  /* Choose camera setting */
+
+  /*cam.setImageSize(VC0706_640x480);        // biggest*/
+  cam.setImageSize(VC0706_320x240);        // medium
+  /*cam.setImageSize(VC0706_160x120);        // small*/
 
   int32_t large_delay_after_write = 50;
   int32_t small_delay_after_write = 10;

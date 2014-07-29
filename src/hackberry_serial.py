@@ -52,6 +52,7 @@ class HackberrySerial:
     jpg_len = self.read_frame_size()
 
     if (jpg_len == 0):
+      print "!!!! ERROR n frame: image len is 0 !!!!"
       return None
 
     frame_size = jpg_len
