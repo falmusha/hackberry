@@ -15,6 +15,7 @@ if __name__ == '__main__':
   hackberry_cv.init_surf()
   hackberry_cv.init_fast()
 
+  hackberry_ser.flush()
 
   stream = cStringIO.StringIO()
   hackberry_ser.read_frame(stream)

@@ -89,6 +89,10 @@ class HackberrySerial:
       self.stream_to_file(stream)
     stream.close()
 
+  def flush(self):
+    self.ser.flush()
+
+
     
 if __name__ == '__main__':
 
