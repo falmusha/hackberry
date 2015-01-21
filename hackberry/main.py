@@ -11,7 +11,7 @@ if __name__ == '__main__':
   hackberry_ser = HackberrySerial()
   hackberry_ser.connect()
 
-  hackberry_cv = HackberryCV()
+  hackberry_cv = ComputerVision()
   hackberry_cv.init_surf()
   hackberry_cv.init_fast()
 
