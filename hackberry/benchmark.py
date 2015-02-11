@@ -7,12 +7,12 @@ import sys
 import csv
 import cv2
 import time
-import n_cv
+import hcv
 
 class HackberryBenchmark:
 
     def __init__(self, path, algorithims=[], image_ext=['jpg']):
-        self.hcv = n_cv.ComputerVision()
+        self.hcv = hcv.ComputerVision()
         self.image_ext = image_ext
         self.path = path
         self.algorithims = algorithims
@@ -55,7 +55,7 @@ class HackberryBenchmark:
 
                 t_start = time.time()
                 kp = a.detect(frame, None)
-                t_end = round(time.time() - t_start, 3)
+                t_end = round(time.time() - t_start, 5)
 
                 row.append(t_end)
                 row.append(len(kp))
@@ -85,7 +85,6 @@ class HackberryBenchmark:
       
         
 if __name__ == "__main__":
-    pass
 
     if sys.argv < 2:
         exit(0)
@@ -103,7 +102,7 @@ if __name__ == "__main__":
     with open('keypoints.csv', 'w+') as f:
         benchmark.generate_keypoints(f)
 
-    with open('descriptions.csv', 'w+') as f:
-        benchmark.generate_keypoints(f)
+    #with open('descriptions.csv', 'w+') as f:
+        #benchmark.generate_keypoints(f)
 
 
