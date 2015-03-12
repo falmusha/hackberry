@@ -227,6 +227,7 @@ if __name__ == "__main__":
     img1 = cv2.imread(img1_path) # queryImage
     img2 = cv2.imread(img2_path) # trainImage
     img3 = cv2.imread(img3_path) # trainImage
+    img4 = cv2.imread(img4_path) # trainImage
 
 
     #img1 = cv2.resize(img1, (0,0), fx=0.5, fy=0.5)
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     #kp_alg = cv2.SURF()
     des_alg = cv2.SURF()
 
-    stitched_img = hcv.stitch_arr([img1, img2, img3], kp_alg, des_alg)
+    stitched_img = hcv.stitch_arr([img1, img2, img3, img4], kp_alg, des_alg)
 
     #cv2.imshow('stitched', stitched_img)
     #cv2.imshow('img1', img1)
