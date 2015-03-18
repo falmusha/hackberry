@@ -125,7 +125,7 @@ class ComputerVision:
         kp = kp_a.detect(frame, None)
         return des_a.compute(frame, kp)
 
-    def filter_matches(self, matches, ratio = 0.55):
+    def filter_matches(self, matches, ratio = 0.7):
         filtered = []
         for m in matches:
             if len(m) == 2 and m[0].distance < m[1].distance * ratio:
@@ -151,6 +151,17 @@ class ComputerVision:
 
         return good
 
+    def find_homography(self, src_pts, dst_pts):
+        
+        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+        outlier_indices = []
+        for i,m in enumerate(mask):
+            if m[0] == 0:
+                outlier_indices.append(i)
+
+        return (H, outlier_indices)
+
     def stitch(self, img1, img2, kp_alg, des_alg, min_match=1):
 
         kp1, des1 = self.detect_and_compute(img1, kp_alg, des_alg)
@@ -169,9 +180,14 @@ class ComputerVision:
         drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
         self.show('matches', drawn_matches)
 
-        #pdb.set_trace()
+        #H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+        (H, outlier_indices) = self.find_homography(dst_pts, src_pts)
 
-        H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+        src_pts = np.delete(src_pts, outlier_indices, 0)
+        dst_pts = np.delete(dst_pts, outlier_indices, 0)
+
+        drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
+        self.show('new matches', drawn_matches)
 
         (o_size, offset) = self.calc_size(img1.shape, img2.shape, H)
 
@@ -219,29 +235,36 @@ if __name__ == "__main__":
     import numpy as np
     import math
 
-    img1_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_a.jpg'
-    img2_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_b.jpg'
-    img3_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_c.jpg'
-    img4_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_d.jpg'
+    img1a_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_a.jpg'
+    img1b_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_b.jpg'
+    img1c_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_c.jpg'
+    img1d_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_d.jpg'
 
-    img1 = cv2.imread(img1_path) # queryImage
-    img2 = cv2.imread(img2_path) # trainImage
-    img3 = cv2.imread(img3_path) # trainImage
-    img4 = cv2.imread(img4_path) # trainImage
+    img2a_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_2_a.jpg'
+    img2b_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_2_b.jpg'
+    img2c_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_2_c.jpg'
+
+    img1a = cv2.imread(img1a_path) # queryImage
+    img1b = cv2.imread(img1b_path) # trainImage
+    img1c = cv2.imread(img1c_path) # trainImage
+    img1d = cv2.imread(img1d_path) # trainImage
 
 
-    #img1 = cv2.resize(img1, (0,0), fx=0.5, fy=0.5)
-    #img2 = cv2.resize(img2, (0,0), fx=0.5, fy=0.5)
-    #img3 = cv2.resize(img3, (0,0), fx=0.5, fy=0.5)
+    img2a = cv2.imread(img2a_path) # queryImage
+    img2b = cv2.imread(img2b_path) # trainImage
+    img2c = cv2.imread(img2c_path) # trainImage
 
     hcv = ComputerVision()
 
-    kp_alg = cv2.FastFeatureDetector()
-    #kp_alg = cv2.SURF()
+    #kp_alg = cv2.FastFeatureDetector()
+    kp_alg = cv2.SURF()
+
     des_alg = cv2.SURF()
 
-    stitched_img = hcv.stitch_arr([img1, img2, img3, img4], kp_alg, des_alg)
 
+    stitched_img = hcv.stitch_arr([img2a, img2b, img2c], kp_alg, des_alg)
+
+    stitched_img = hcv.stitch_arr([img1a, img1b, img1c, img1d], kp_alg, des_alg)
     #cv2.imshow('stitched', stitched_img)
     #cv2.imshow('img1', img1)
     #cv2.imshow('img2', img2)
@@ -251,4 +274,3 @@ if __name__ == "__main__":
             #break
 
     #cv2.destroyAllWindows() 
-
