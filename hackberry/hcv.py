@@ -1,6 +1,55 @@
 #!/usr/bin/python
 
 import cv2
+import threading
+import time
+
+class ImageViewer (threading.Thread):
+
+    def __init__(self):
+        super(ImageViewer, self).__init__()
+        self.counter = 0
+
+    def run(self, frame):
+        s_frame = cv2.resize(frame, (0,0), fx=0.3, fy=0.3)
+        cv2.imshow('out', s_frame)
+        cv2.imwrite('out'+str(self.counter)+'.jpg', frame)
+        self.counter += 1
+
+
+class ImageBuffer (threading.Thread):
+
+    def __init__(self, cap, buf, buf_size, lock):
+        super(ImageBuffer, self).__init__()
+        self._stop = threading.Event()
+
+        self.cap = cap
+        self.buf = buf
+        self.buf_size = buf_size
+        self.lock = lock
+        self.counter = 0
+
+    def run(self):
+
+        while not self.stopped():
+            ret, frame = self.cap.read()
+            #frame = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            if len(self.buf) < self.buf_size:
+                self.lock.acquire()
+                self.buf.append(frame)
+                self.lock.release()
+                #cv2.imwrite('f-'+str(self.counter)+'.jpg', frame)
+                #self.counter += 1
+                time.sleep(0.5)
+
+    def stop(self):
+        self._stop.set()
+
+    def stopped(self):
+        return self._stop.isSet()
+
 
 class ComputerVision:
 
@@ -172,13 +221,13 @@ class ComputerVision:
 
         if len(matches)<min_match:
             print "Not enough matches are found - %d/%d" % (len(matches), min_match)
-            return
+            raise Exception
 
         src_pts = np.float32([ kp1[m.queryIdx].pt for m in matches ])
         dst_pts = np.float32([ kp2[m.trainIdx].pt for m in matches ])
 
         drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
-        self.show('matches', drawn_matches)
+        #self.show('matches', drawn_matches)
 
         #H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
         (H, outlier_indices) = self.find_homography(dst_pts, src_pts)
@@ -187,7 +236,7 @@ class ComputerVision:
         dst_pts = np.delete(dst_pts, outlier_indices, 0)
 
         drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
-        self.show('new matches', drawn_matches)
+        #self.show('new matches', drawn_matches)
 
         (o_size, offset) = self.calc_size(img1.shape, img2.shape, H)
 
@@ -205,14 +254,14 @@ class ComputerVision:
                     (dst_w, dst_h)
                 )
 
-        self.show('w1', warped_1)
+        #self.show('w1', warped_1)
         warped_2 = cv2.warpPerspective(
                     img2,
                     H,
                     (dst_w, dst_h)
                 )
 
-        self.show('w2', warped_2)
+        #self.show('w2', warped_2)
 
 
         warped_2_gray = cv2.cvtColor(warped_2, cv2.COLOR_BGR2GRAY)
@@ -224,16 +273,98 @@ class ComputerVision:
                 dtype=cv2.CV_8U)
         out = cv2.add(out, warped_2, dtype=cv2.CV_8U)
 
-        self.show('o', out)
+        small_out = cv2.resize(out, (0,0), fx=0.5, fy=0.5)
+        #self.show('o', small_out)
 
         return out
 
+    def real_time_it(self, kp_alg, des_alg, threads, buf, min_match=1, frames=500):
 
-if __name__ == "__main__":
+        bad_frame_sequence = 4
+        print "Starting in 5 seconds"
+        time.sleep(5)
+        print "SART!!!"
+        threads['bufferer'].start()
 
-    import pdb
-    import numpy as np
-    import math
+        while len(buf) < 2:
+            continue
+
+        threads['lock'].acquire()
+        out = buf.pop(0)
+        threads['lock'].release()
+
+        while frames > 0:
+            if len(buf) >= 1:
+                threads['lock'].acquire()
+                next_frame = buf.pop(0)
+                threads['lock'].release()
+                old_out = out
+                try:
+                    out = self.stitch(out, next_frame, kp_alg, des_alg)
+                    threads['viewer'].run(out)
+                except Exception, e:
+                    bad_frame_sequence -= 1
+                    if bad_frame_sequence == 0:
+                        out = buf.pop(0)
+                    else:
+                        out = old_out
+                    print 'BAD FRAME - '+str(e)
+                    continue
+                print str(frames)
+                frames -= 1
+
+
+def test_on_files():
+
+    kp_alg = cv2.SURF()
+    des_alg = cv2.SURF()
+    
+    out = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f-0.jpg'
+    out = cv2.imread(out) # queryImage
+
+    frames_to_process = 40
+    for i in range(1, frames_to_process):
+        if i+1 == frames_to_process:
+            break
+        n_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f-'+str(i)+'.jpg'
+        n = cv2.imread(n_path) # queryImage
+        out = hcv.stitch(out, n, kp_alg, des_alg)
+
+def rt_test():
+
+    hcv = ComputerVision()
+
+    kp_alg = cv2.SURF()
+    des_alg = cv2.SURF()
+    
+    cap = cv2.VideoCapture(1)
+    buf = list()
+    buf_size = 6
+    thread_lock = threading.Lock()
+
+    viewer = ImageViewer()
+    bufferer = ImageBuffer(cap, buf, buf_size, thread_lock)
+
+    threads = dict()
+    threads['bufferer'] = bufferer
+    threads['viewer'] = viewer
+    threads['lock'] = thread_lock
+
+    try:
+        hcv.real_time_it(kp_alg, des_alg, threads, buf)
+        #bufferer.start()
+        while True:
+            continue
+    except KeyboardInterrupt:
+        bufferer.stop()
+        bufferer.join()
+        cap.release()
+
+    bufferer.stop()
+    bufferer.join()
+    cap.release()
+
+def old_test():
 
     img1a_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_a.jpg'
     img1b_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_b.jpg'
@@ -258,19 +389,24 @@ if __name__ == "__main__":
 
     #kp_alg = cv2.FastFeatureDetector()
     kp_alg = cv2.SURF()
-
     des_alg = cv2.SURF()
-
 
     stitched_img = hcv.stitch_arr([img2a, img2b, img2c], kp_alg, des_alg)
 
     stitched_img = hcv.stitch_arr([img1a, img1b, img1c, img1d], kp_alg, des_alg)
-    #cv2.imshow('stitched', stitched_img)
-    #cv2.imshow('img1', img1)
-    #cv2.imshow('img2', img2)
 
-    #while True:
-        #if cv2.waitKey(1) & 0xFF == ord('q'):
-            #break
+def rotateImage(image, angle):
 
-    #cv2.destroyAllWindows() 
+    #rotation angle in degree
+    return image
+    return ndimage.rotate(image, angle)
+
+if __name__ == "__main__":
+
+    import pdb
+    import numpy as np
+    import math
+    from scipy import ndimage
+
+    rt_test()
+
