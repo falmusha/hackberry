@@ -6,11 +6,7 @@
 #define CAMERA_RX 3
 #define BLUETOOTH_TX 8
 #define BLUETOOTH_RX 9
-#define BLUETOOTH_STATE 4
-#define BLUETOOTH_EN 3
-#define LED_PIN 7
-#define BAUD_RATE 9600
-#define BUFF_SIZE 32
+#define BUFF_SIZE 64
 // Using SoftwareSerial (Arduino 1.0+) or NewSoftSerial (Arduino 0023 & prior):
 #if ARDUINO >= 100
 // On Uno: camera TX connected to pin 2, camera RX to pin 3:
@@ -34,8 +30,15 @@ int setup_camera(void) {
     return -1;
   } 
 
-  delay(100);
-
+  /* Choose camera setting */
+  /*cam.setImageSize(VC0706_640x480);        // biggest*/
+  cam.setImageSize(VC0706_320x240);        // medium
+  /*cam.setImageSize(VC0706_160x120);        // small*/
+//  cam.setBaud9600();
+//  cam.setBaud19200();
+//  cam.setBaud38400();
+//  cam.setBaud57600();
+  cam.setBaud115200();
 
   return 0;
 
@@ -44,44 +47,50 @@ int setup_camera(void) {
 int setup_bluetooth() {
 
   // Bluetooth initialization:
-  btSerial.begin(BAUD_RATE);
-
-  // Define pins
-  pinMode(BLUETOOTH_STATE, INPUT);
-  pinMode(BLUETOOTH_EN, OUTPUT);
-
-  delay(100);
-
-  if (btSerial.isListening()) {
-    Serial.println("Bluetooth Found");
-    return 0;
-  } else {
+  btSerial.begin(57600);
+  
+  if (!btSerial.isListening()) {
     Serial.println("Failed, Bluetooth Not Found");
     return -1;
   }
 
+  btSerial.print("AT+BAUD7");
+  delay(1000);
+  
+  while(btSerial.available() <= 0) {}
+
+  String response = "";
+  while(btSerial.available()) { // While there is more to be read, keep reading.
+    response += (char)btSerial.read();
+  }
+  
+  if (response == "OK57600") {
+    Serial.println("Bluetooth Found");
+  } else {
+    Serial.println("Failed, Bluetooth Not Found");
+  }
+  
+}
+
+void wait_on_ack() {
+  while (btSerial.available() <= 0) {}
+  char b = btSerial.read();
+  if (b == '7') {
+    Serial.println("Ack received");
+  } else {
+    Serial.println("NOOO Ack");
+  }
 }
 
 void take_picture() {
 
-  // Wait for send command
-  while (!btSerial.available() && btSerial.read() != '1') {}
-
-  /* Choose camera setting */
-
-  /*cam.setImageSize(VC0706_640x480);        // biggest*/
-  cam.setImageSize(VC0706_320x240);        // medium
-  /*cam.setImageSize(VC0706_160x120);        // small*/
-
   int32_t large_delay_after_write = 50;
   int32_t small_delay_after_write = 10;
 
-  digitalWrite(LED_PIN, HIGH);
   if (!cam.takePicture()) {
     Serial.println("Failed to snap!");
     return;
   }
-  digitalWrite(LED_PIN, LOW);
 
   // Get the size of the image (frame) taken  
   uint16_t jpglen = cam.frameLength();
@@ -94,55 +103,33 @@ void take_picture() {
   // Copy lower 8 bits
   jpglen_array[1] = jpglen;
 
-  Serial.print("Image size = ");
-  Serial.print(jpglen, HEX);
-  Serial.print(" = ");
-  Serial.println(jpglen, DEC);
-
-  int32_t time = millis();
-
   btSerial.write(jpglen_array, sizeof(jpglen_array));
-
-  delay(small_delay_after_write);
+  btSerial.flush();
+//  wait_on_ack();
 
   while (jpglen > 0) {
 
-    uint8_t * buffer;
-
+    uint8_t * bf;
     // Read 32 bytes at a time;
     uint8_t bytesToRead = min(BUFF_SIZE, jpglen); 
-    buffer = cam.readPicture(bytesToRead);
-
-    delay(small_delay_after_write);
+    bf = cam.readPicture(bytesToRead);
 
     // Write byte stream to serial port
-    btSerial.write(buffer, bytesToRead);
+    btSerial.write(bf, bytesToRead);
+    btSerial.flush();
+//    wait_on_ack();
 
-    delay(large_delay_after_write);
-
+    Serial.print(".");
+    
     // Subtract sent bytes
     jpglen -= bytesToRead;
-
   }
-
-  time = millis() - time;
-  int32_t total_delay = (frame_size/BUFF_SIZE)*(large_delay_after_write \
-      + small_delay_after_write) \
-      + small_delay_after_write;
-
-  Serial.print("Total time = ");
-  Serial.print(time); 
-  Serial.print(" ms, Delay time = ");
-  Serial.print(total_delay); 
-  Serial.print(" ms, Transfer time = ");
-  Serial.println(time-total_delay); 
 
 }
 
 void setup() {
 
-  Serial.begin(BAUD_RATE);
-  Serial.println("-------[ Hackberry ]-------");
+  Serial.begin(115200);
   
   if (setup_camera() != 0) {
     return;
@@ -152,17 +139,16 @@ void setup() {
     return;
   } 
 
-  pinMode(LED_PIN, OUTPUT);
-
-  while(!Serial) {}
-
-  delay(300);
-
 }
 
 void loop() {
+
   cam.reset();
   delay(300);
+  
+  // Wait for send command
+  while (!btSerial.available() && btSerial.read() != '1') {}
+  
   take_picture();
 }
 
