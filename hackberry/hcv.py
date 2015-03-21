@@ -11,7 +11,7 @@ class ImageViewer (threading.Thread):
         self.counter = 0
 
     def run(self, frame):
-        s_frame = cv2.resize(frame, (0,0), fx=0.3, fy=0.3)
+        s_frame = cv2.resize(frame, (0,0), fx=0.2, fy=0.2)
         cv2.imshow('out', s_frame)
         cv2.imwrite('out'+str(self.counter)+'.jpg', frame)
         self.counter += 1
@@ -42,7 +42,7 @@ class ImageBuffer (threading.Thread):
                 self.lock.release()
                 #cv2.imwrite('f-'+str(self.counter)+'.jpg', frame)
                 #self.counter += 1
-                time.sleep(0.5)
+                time.sleep(0.05)
 
     def stop(self):
         self._stop.set()
@@ -273,7 +273,6 @@ class ComputerVision:
                 dtype=cv2.CV_8U)
         out = cv2.add(out, warped_2, dtype=cv2.CV_8U)
 
-        small_out = cv2.resize(out, (0,0), fx=0.5, fy=0.5)
         #self.show('o', small_out)
 
         return out
@@ -314,21 +313,32 @@ class ComputerVision:
                 frames -= 1
 
 
+def show(name, img):
+    cv2.imshow(name, img)
+    while True:
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cv2.destroyAllWindows() 
+
 def test_on_files():
+
+    hcv = ComputerVision()
 
     kp_alg = cv2.SURF()
     des_alg = cv2.SURF()
     
-    out = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f-0.jpg'
+    out = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f64/f-0.jpg'
     out = cv2.imread(out) # queryImage
 
     frames_to_process = 40
     for i in range(1, frames_to_process):
         if i+1 == frames_to_process:
             break
-        n_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f-'+str(i)+'.jpg'
+        n_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f64/f-'+str(i)+'.jpg'
         n = cv2.imread(n_path) # queryImage
         out = hcv.stitch(out, n, kp_alg, des_alg)
+        small_out = cv2.resize(out, (0,0), fx=0.3, fy=0.3)
+        show('out', small_out)
 
 def rt_test():
 
@@ -337,9 +347,9 @@ def rt_test():
     kp_alg = cv2.SURF()
     des_alg = cv2.SURF()
     
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(0)
     buf = list()
-    buf_size = 6
+    buf_size = 32
     thread_lock = threading.Lock()
 
     viewer = ImageViewer()
@@ -408,5 +418,7 @@ if __name__ == "__main__":
     import math
     from scipy import ndimage
 
+    #test_on_files()
     rt_test()
+
 
