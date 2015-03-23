@@ -1,60 +1,82 @@
-#!/usr/bin/python
+#!/usr/local/bin/python
 
 import cv2
-import threading
-import time
+import numpy as np
 
-class ImageViewer (threading.Thread):
+import time
+import pdb
+import math
+
+
+class Matcher:
 
     def __init__(self):
-        super(ImageViewer, self).__init__()
-        self.counter = 0
+        # default FLANN parameters
+        self.flann_matcher = cv2.FlannBasedMatcher(
+                dict(algorithm=0, trees=5),
+                dict(checks=50)
+        )
+        self.binary_flann_matcher = cv2.FlannBasedMatcher(
+                dict(
+                    algorithm=6,
+                    table_number=6,
+                    key_size=12,
+                    multi_probe_level=1
+                ), 
+                dict(checks=50)
+        )
 
-    def run(self, frame):
-        s_frame = cv2.resize(frame, (0,0), fx=0.2, fy=0.2)
-        cv2.imshow('out', s_frame)
-        cv2.imwrite('out'+str(self.counter)+'.jpg', frame)
-        self.counter += 1
+        # default BF parameters
+        self.bf_matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+        self.binary_bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
+        # default KNN BF parameters
+        self.knn_bf_matcher = cv2.BFMatcher()
+        self.binary_knn_bf_matcher = cv2.BFMatcher()
 
-class ImageBuffer (threading.Thread):
+    def set_flann_matcher(self, index_params, search_params):
+        self.flann_matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        return self.flann_matcher
 
-    def __init__(self, cap, buf, buf_size, lock):
-        super(ImageBuffer, self).__init__()
-        self._stop = threading.Event()
+    def set_binary_flann_match_params(self, index_params, search_params):
+        self.binary_flann_matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        return self.binary_flann_matcher
 
-        self.cap = cap
-        self.buf = buf
-        self.buf_size = buf_size
-        self.lock = lock
-        self.counter = 0
+    def filter_matches(self, matches, ratio = 0.7):
+        filtered = []
+        for m in matches:
+            if len(m) == 2 and m[0].distance < m[1].distance * ratio:
+                filtered.append(m[0])
+        
+        return filtered
 
-    def run(self):
+    def brute_force_match(self, des1, des2):
+        return self.bf_matcher.match(des1, des2)
 
-        while not self.stopped():
-            ret, frame = self.cap.read()
-            #frame = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    def binary_brute_force_match(self, des1, des2):
+        return self.binary_bf_matcher.match(des1, des2)
 
-            if len(self.buf) < self.buf_size:
-                self.lock.acquire()
-                self.buf.append(frame)
-                self.lock.release()
-                #cv2.imwrite('f-'+str(self.counter)+'.jpg', frame)
-                #self.counter += 1
-                time.sleep(0.05)
+    def knn_brute_force_match(self, des1, des2, k=2):
+        matches = self.knn_bf_matcher.knnMatch(des1, des2, k=k)
+        return self.filter_matches(matches)
 
-    def stop(self):
-        self._stop.set()
+    def binary_knn_brute_force_match(self, des1, des2, k=2):
+        matches = self.binary_knn_bf_matcher.knnMatch(des1, des2, k=k)
+        return self.filter_matches(matches)
 
-    def stopped(self):
-        return self._stop.isSet()
+    def flann_match(self, des1, des2, k=2):
+        matches = self.flann_matcher.knnMatch(des1, des2, k=k)
+        return self.filter_matches(matches)
+
+    def binary_flann_match(self, des1, des2, k=2):
+        matches = self.binary_flann_matcher.knnMatch(des1, des2, k=k)
+        return self.filter_matches(matches)
 
 
 class ComputerVision:
 
     def __init__(self):
-        self.x = None
+        self.matcher = Matcher()
 
     def show(self, name, img):
         cv2.imshow(name, img)
@@ -70,7 +92,12 @@ class ComputerVision:
         offset = 0
         (h1, w1) = image1.shape[:2]
         (h2, w2) = image2.shape[:2]
-        image = np.zeros((max(h1, h2), w1 + w2 + offset, 3), np.uint8)
+
+        if len(image1.shape) > 2:
+            image = np.zeros((max(h1, h2), w1 + w2 + offset, 3), np.uint8)
+        else:
+            image = np.zeros((max(h1, h2), w1 + w2 + offset), np.uint8)
+
         image[:h1, :w1] = image1
         image[:h2, w1+offset:w1+offset+w2] = image2
         
@@ -130,42 +157,56 @@ class ComputerVision:
         max_x = int(math.ceil(max_x))
         max_y = int(math.ceil(max_y))
 
+        max_x = max(size_image1[0], max_x)
+        max_y = max(size_image1[1], max_y)
+
         x_offset = 0
         y_offset = 0
 
         if min_x < 0:
             x_offset += -(min_x)
+            max_x += -(min_x)
         if min_y < 0:
             y_offset += -(min_y)
+            max_y += -(min_y)
 
-        max_x = max(size_image1[0], max_x)
-        max_y = max(size_image1[1], max_y)
 
         offset = (x_offset, y_offset)
         size   = (max_y, max_x)
         
         homography[0:2,2] +=  offset
 
-        #sizes = {
-                #'out': size,
-                #'1': size_image1,
-                #'2': img2_dims,
-                #}
-
         return (size, offset)
 
-    def stitch_arr(self, imgs, kp_alg, des_alg, min_match=10):
+    def crop_off_black_edges(self, final_img):
 
-        imgs_len = len(imgs)
+        # Crop off the black edges
+        final_gray = cv2.cvtColor(final_img, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(final_gray, 1, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-        if imgs_len == 0:
-            return None
+        max_area = 0
+        best_rect = (0,0,0,0)
 
-        out = imgs[0]
-        for i in range(0, imgs_len):
-            if i+1 == imgs_len:
-                return out
-            out = self.stitch(out, imgs[i+1], kp_alg, des_alg)
+        for cnt in contours:
+            x,y,w,h = cv2.boundingRect(cnt)
+            # print "Bounding Rectangle: ", (x,y,w,h)
+
+            deltaHeight = h-y
+            deltaWidth = w-x
+
+            area = deltaHeight * deltaWidth
+
+            if ( area > max_area and deltaHeight > 0 and deltaWidth > 0):
+                max_area = area
+                best_rect = (x,y,w,h)
+
+        if ( max_area > 0 ):
+            final_img_crop = final_img[best_rect[1]:best_rect[1]+best_rect[3],
+                    best_rect[0]:best_rect[0]+best_rect[2]]
+            return final_img_crop
+        else:
+            return final_img
 
     def detect_and_compute(self, frame, kp_a, des_a):
         ''' kp_a is keypoint algorithim,
@@ -173,32 +214,6 @@ class ComputerVision:
         '''
         kp = kp_a.detect(frame, None)
         return des_a.compute(frame, kp)
-
-    def filter_matches(self, matches, ratio = 0.7):
-        filtered = []
-        for m in matches:
-            if len(m) == 2 and m[0].distance < m[1].distance * ratio:
-                filtered.append(m[0])
-        
-        return filtered
-
-    def match(self, des1, des2):
-
-        FLANN_INDEX_KDTREE = 0
-
-        index_params = dict(
-                algorithm = FLANN_INDEX_KDTREE,
-                trees = 5
-                )
-        search_params = dict(checks = 50)
-
-        flann = cv2.FlannBasedMatcher(index_params, search_params)
-        matches = flann.knnMatch(des1, des2, k=2)
-
-        # store all the good matches as per Lowe's ratio test.
-        good = self.filter_matches(matches)
-
-        return good
 
     def find_homography(self, src_pts, dst_pts):
         
@@ -211,38 +226,34 @@ class ComputerVision:
 
         return (H, outlier_indices)
 
-    def stitch(self, img1, img2, kp_alg, des_alg, min_match=1):
+    def stitch(self, img1, img2, kp_alg, des_alg, min_match=4):
 
         kp1, des1 = self.detect_and_compute(img1, kp_alg, des_alg)
         kp2, des2 = self.detect_and_compute(img2, kp_alg, des_alg)
 
+        matches = self.matcher.flann_match(des1, des2)
 
-        matches = self.match(des1, des2)
-
-        if len(matches)<min_match:
+        if len(matches) < min_match:
             print "Not enough matches are found - %d/%d" % (len(matches), min_match)
             raise Exception
 
         src_pts = np.float32([ kp1[m.queryIdx].pt for m in matches ])
         dst_pts = np.float32([ kp2[m.trainIdx].pt for m in matches ])
 
-        drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
+        #drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
         #self.show('matches', drawn_matches)
 
-        #H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
         (H, outlier_indices) = self.find_homography(dst_pts, src_pts)
 
-        src_pts = np.delete(src_pts, outlier_indices, 0)
-        dst_pts = np.delete(dst_pts, outlier_indices, 0)
-
-        drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
+        #src_pts = np.delete(src_pts, outlier_indices, 0)
+        #dst_pts = np.delete(dst_pts, outlier_indices, 0)
+        #drawn_matches = self.draw_matches(img1, img2, src_pts, dst_pts)
         #self.show('new matches', drawn_matches)
 
         (o_size, offset) = self.calc_size(img1.shape, img2.shape, H)
 
         dst_h = o_size[0] # y
         dst_w = o_size[1] # x
-        
 
         offset_h = np.matrix(np.identity(3), np.float32)
         offset_h[0,2] = offset[0]
@@ -253,14 +264,13 @@ class ComputerVision:
                     offset_h,
                     (dst_w, dst_h)
                 )
-
         #self.show('w1', warped_1)
+
         warped_2 = cv2.warpPerspective(
                     img2,
                     H,
                     (dst_w, dst_h)
                 )
-
         #self.show('w2', warped_2)
 
 
@@ -272,153 +282,8 @@ class ComputerVision:
                 mask=np.bitwise_not(warped_2_mask),
                 dtype=cv2.CV_8U)
         out = cv2.add(out, warped_2, dtype=cv2.CV_8U)
+        out = self.crop_off_black_edges(out)
 
         #self.show('o', small_out)
 
         return out
-
-    def real_time_it(self, kp_alg, des_alg, threads, buf, min_match=1, frames=500):
-
-        bad_frame_sequence = 4
-        print "Starting in 5 seconds"
-        time.sleep(5)
-        print "SART!!!"
-        threads['bufferer'].start()
-
-        while len(buf) < 2:
-            continue
-
-        threads['lock'].acquire()
-        out = buf.pop(0)
-        threads['lock'].release()
-
-        while frames > 0:
-            if len(buf) >= 1:
-                threads['lock'].acquire()
-                next_frame = buf.pop(0)
-                threads['lock'].release()
-                old_out = out
-                try:
-                    out = self.stitch(out, next_frame, kp_alg, des_alg)
-                    threads['viewer'].run(out)
-                except Exception, e:
-                    bad_frame_sequence -= 1
-                    if bad_frame_sequence == 0:
-                        out = buf.pop(0)
-                    else:
-                        out = old_out
-                    print 'BAD FRAME - '+str(e)
-                    continue
-                print str(frames)
-                frames -= 1
-
-
-def show(name, img):
-    cv2.imshow(name, img)
-    while True:
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    cv2.destroyAllWindows() 
-
-def test_on_files():
-
-    hcv = ComputerVision()
-
-    kp_alg = cv2.SURF()
-    des_alg = cv2.SURF()
-    
-    out = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f64/f-0.jpg'
-    out = cv2.imread(out) # queryImage
-
-    frames_to_process = 40
-    for i in range(1, frames_to_process):
-        if i+1 == frames_to_process:
-            break
-        n_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/hackberry/f64/f-'+str(i)+'.jpg'
-        n = cv2.imread(n_path) # queryImage
-        out = hcv.stitch(out, n, kp_alg, des_alg)
-        small_out = cv2.resize(out, (0,0), fx=0.3, fy=0.3)
-        show('out', small_out)
-
-def rt_test():
-
-    hcv = ComputerVision()
-
-    kp_alg = cv2.SURF()
-    des_alg = cv2.SURF()
-    
-    cap = cv2.VideoCapture(0)
-    buf = list()
-    buf_size = 32
-    thread_lock = threading.Lock()
-
-    viewer = ImageViewer()
-    bufferer = ImageBuffer(cap, buf, buf_size, thread_lock)
-
-    threads = dict()
-    threads['bufferer'] = bufferer
-    threads['viewer'] = viewer
-    threads['lock'] = thread_lock
-
-    try:
-        hcv.real_time_it(kp_alg, des_alg, threads, buf)
-        #bufferer.start()
-        while True:
-            continue
-    except KeyboardInterrupt:
-        bufferer.stop()
-        bufferer.join()
-        cap.release()
-
-    bufferer.stop()
-    bufferer.join()
-    cap.release()
-
-def old_test():
-
-    img1a_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_a.jpg'
-    img1b_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_b.jpg'
-    img1c_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_c.jpg'
-    img1d_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_1_d.jpg'
-
-    img2a_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_2_a.jpg'
-    img2b_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_2_b.jpg'
-    img2c_path = '/Users/ifahad7/Dropbox/School/FYDP/hackberry/test_images/stitching/img_2_c.jpg'
-
-    img1a = cv2.imread(img1a_path) # queryImage
-    img1b = cv2.imread(img1b_path) # trainImage
-    img1c = cv2.imread(img1c_path) # trainImage
-    img1d = cv2.imread(img1d_path) # trainImage
-
-
-    img2a = cv2.imread(img2a_path) # queryImage
-    img2b = cv2.imread(img2b_path) # trainImage
-    img2c = cv2.imread(img2c_path) # trainImage
-
-    hcv = ComputerVision()
-
-    #kp_alg = cv2.FastFeatureDetector()
-    kp_alg = cv2.SURF()
-    des_alg = cv2.SURF()
-
-    stitched_img = hcv.stitch_arr([img2a, img2b, img2c], kp_alg, des_alg)
-
-    stitched_img = hcv.stitch_arr([img1a, img1b, img1c, img1d], kp_alg, des_alg)
-
-def rotateImage(image, angle):
-
-    #rotation angle in degree
-    return image
-    return ndimage.rotate(image, angle)
-
-if __name__ == "__main__":
-
-    import pdb
-    import numpy as np
-    import math
-    from scipy import ndimage
-
-    #test_on_files()
-    rt_test()
-
-
