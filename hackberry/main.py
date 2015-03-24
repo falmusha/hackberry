@@ -1,5 +1,6 @@
 #!/usr/local/bin/python
 
+import hackberry_serial as hackberry_s
 import hcv as hackberry_cv
 import cv2
 import threading
@@ -129,13 +130,16 @@ class ImageViewer (threading.Thread):
         self._stop = threading.Event()
 
     def show_img(self, img):
-        #s_img = cv2.resize(img, (0,0), fx=0.2, fy=0.2)
-        cv2.destroyAllWindows()
         cv2.imshow('_out', img)
 
     def run(self, img):
         self.show_img(img)
 
+    def show_kp(self, img, alg):
+        kp = alg.detect(img, None)
+        img_kp = cv2.drawKeypoints(img, kp, color=(255,0,0))
+        cv2.destroyWindow('_out_kp')
+        cv2.imshow('_out_kp', img_kp)
 
 
 def rt_blocking_pop(buf, lock):
@@ -179,6 +183,8 @@ def rt_it_slow(hcv, kp_alg, des_alg, threads, cam_buf, stitch_buf, frames=200):
 
     out = rt_blocking_pop(cam_buf, threads['cam_lock'])
 
+    threads['viewer2'].show_kp(out, kp_alg)
+
     while True:
         tries = 10
         while tries > 0:
@@ -202,6 +208,7 @@ def rt_it_slow(hcv, kp_alg, des_alg, threads, cam_buf, stitch_buf, frames=200):
                 if tries == 0:
                     print 'Start New sequence'
                     out = rt_blocking_pop(cam_buf, threads['cam_lock'])
+                    threads['viewer2'].show_kp(out, kp_alg)
 
     print 'Done!!'
 
@@ -256,7 +263,7 @@ def rt_test():
     #kp_alg = cv2.FastFeatureDetector()
     des_alg = cv2.SURF()
     
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(0)
     cam_buf = list()
     cam_buf_size = 10
     cam_thread_lock = threading.Lock()
@@ -268,11 +275,13 @@ def rt_test():
     bufferer = ImageBuffer(cap, cam_buf, cam_buf_size, cam_thread_lock)
     stitcher = StitchBuffer(kp_alg, des_alg, stitch_buf, stitch_buf_size, stitch_thread_lock)
     viewer = ImageViewer()
+    viewer2 = ImageViewer()
 
     threads = dict()
     threads['bufferer'] = bufferer
     threads['stitcher'] = stitcher
     threads['viewer'] = viewer
+    threads['viewer2'] = viewer2
     threads['cam_lock'] = cam_thread_lock
     threads['stitch_lock'] = stitch_thread_lock
 
@@ -293,6 +302,50 @@ def rt_test():
     bufferer.stop()
     bufferer.join()
     cap.release()
+
+def uno_rt_it(hcv, img, kp_alg, des_alg, cam_buf, frames=50):
+
+    while len(cam_buf) < 1:
+        continue
+
+    next_img = cam_buf.pop(0)
+
+    try:
+        return hcv.stitch(img, next_img, kp_alg, des_alg)
+    except Exception:
+        return next_img
+
+def rt_test_uno():
+
+    print "Starting in 5 seconds"
+    time.sleep(5)
+    print "START!!!"
+
+    hcv = hackberry_cv.ComputerVision()
+
+    kp_alg = cv2.SURF()
+    des_alg = cv2.SURF()
+    
+    cam_buf = list()
+    bufferer = hackberry_s.UnoBuffer(cam_buf)
+    bufferer.start()
+
+    while len(cam_buf) < 1:
+        continue
+
+    out = cam_buf.pop(0)
+
+    try:
+        while True:
+            out = uno_rt_it(hcv, out, kp_alg, des_alg, cam_buf)
+            cv2.imshow('uno_out', out)
+    except KeyboardInterrupt:
+        bufferer.stop()
+        bufferer.join()
+        return
+
+    bufferer.stop()
+    bufferer.join()
 
 def test_on_files():
 
@@ -367,4 +420,5 @@ if __name__ == "__main__":
 
     #old_test()
     #test_on_files()
-    rt_test()
+    #rt_test()
+    rt_test_uno()

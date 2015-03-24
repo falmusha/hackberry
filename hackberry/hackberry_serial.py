@@ -1,20 +1,46 @@
-#!/usr/bin/python
+#!/usr/local/bin/python
 
 import serial
 import io
 import struct
 import cStringIO
 import time
+import cv2
+import numpy as np
+import threading
+import types
+
+class UnoBuffer (threading.Thread):
+
+    def __init__(self, buf):
+        super(UnoBuffer, self).__init__()
+        self.buf = buf
+        self.hackberry = HackberrySerial()
+        self._stop = threading.Event()
+
+    def run(self):
+        self.hackberry.connect()
+        self.hackberry.flush()
+        while not self.stopped():
+            img = self.hackberry.get_frame()
+            if img.size != 0 or type(img) == types.NoneType:
+                self.buf.append(img)
+            self.hackberry.flush()
+
+        self.hackberry.disconnect()
+
+    def stop(self):
+        print 'UnoBuffer is stopped'
+        self._stop.set()
+
+    def stopped(self):
+        return self._stop.isSet()
 
 class HackberrySerial:
 
     def __init__(self):
         self.counter    = 0
-        #self.baud_rate  = 9600
-        #self.baud_rate  = 19200
-        #self.baud_rate  = 38400
         self.baud_rate  = 57600
-        #self.baud_rate  = 115200
         self.port_name  = '/dev/tty.HC-06-DevB'
         self.buff_size  = 64
         self.frame_size = 2
@@ -30,6 +56,7 @@ class HackberrySerial:
 
     def stream_to_file(self, stream):
 
+
         self.counter += 1
         filename = "IMAGE_"+str(self.counter)+".jpg"
         
@@ -38,23 +65,29 @@ class HackberrySerial:
         with open(filename, 'wb') as f:
             f.write(stream.getvalue())
 
+        return filename
+
+    def flush_input(self):
+        self.ser.flushInput()
+
+    def acceptable_size(self, size):
+        return (size < 14000 and size > 10000)
+
     def read_frame_size(self):
+        
+        size_in_bytes = 14001
+        
+        while not self.acceptable_size(size_in_bytes):
+            self.send_take_picture_cmd()
+            size_in_bytes = self.ser.read(self.frame_size)
+            size_in_bytes = int(size_in_bytes.encode('hex'), 16)
 
-        # Wait until port has data to read
-        #while self.ser.inWaiting() < 2:
-            #continue
-
-        size_in_bytes = self.ser.read(self.frame_size)
-        self.send_ack()
-        return int(size_in_bytes.encode('hex'), 16)
+        return size_in_bytes
 
     def send_take_picture_cmd(self):
         print "\t--> Sent take picture command"
         self.ser.write('1')
 
-    def send_ack(self):
-        self.ser.write('7')
-    
     def read_frame(self, stream):
 
         buffer_read_avg = dict()
@@ -63,11 +96,7 @@ class HackberrySerial:
         buffer_read_avg['num'] = 0
         buffer_read_avg['avg'] = 0
 
-        self.send_take_picture_cmd()
 
-
-        #while self.ser.inWaiting() < 16:
-            #continue
 
         jpg_len = self.read_frame_size()
 
@@ -84,24 +113,10 @@ class HackberrySerial:
         while frame_size > 0:
             bytes_to_read = min(self.buff_size, frame_size)
 
-            #while self.ser.inWaiting() < bytes_to_read:
-                #continue
             ts = time.time()
             buf = self.ser.read(bytes_to_read)
             te = time.time() - ts
-            #self.send_ack()
             t_read += len(buf)
-            #x = [b.encode('hex') for b in buf]
-            #for i, b in enumerate(x): 
-                #if (i+1) == len(x):
-                    #break
-                #if b == "ff":
-                    #if x[i+1] == "d9":
-                        #print 'shit'
-                        #shit == True
-                        #break
-                        #import pdb;pdb.set_trace()
-            #print '.',
             buffer_read_avg['sum'] += te
             buffer_read_avg['num'] += 1
             stream.write(buf)
@@ -128,11 +143,14 @@ class HackberrySerial:
         stream = cStringIO.StringIO()
         ts = time.time()
         te = 0
+        img = np.zeros([0,0,0], np.uint8)
         if self.read_frame(stream):
             te = time.time() - ts
-            self.stream_to_file(stream)
+            filename = self.stream_to_file(stream)
+            img = cv2.imread(filename)
         stream.close()
         print '\t- Time to transfer an image = '+str(te)
+        return img
 
     def flush(self):
         self.ser.flush()
