@@ -151,12 +151,14 @@ def rt_blocking_pop(buf, lock):
     item = buf.pop(0)
     lock.release()
 
+
     return item
 
-def rt_stitch(hcv, img, kp_alg, des_alg, cam_buf, cam_lock, stitch_buf, stitch_lock):
+def rt_stitch(hcv, img, kp_alg, des_alg, cam_buf, cam_lock, stitch_buf, stitch_lock, viewer):
 
 
     next_img = rt_blocking_pop(cam_buf, cam_lock)
+    viewer.show_kp(next_img, kp_alg)
 
     done = False
     try:
@@ -183,7 +185,6 @@ def rt_it_slow(hcv, kp_alg, des_alg, threads, cam_buf, stitch_buf, frames=200):
 
     out = rt_blocking_pop(cam_buf, threads['cam_lock'])
 
-    threads['viewer2'].show_kp(out, kp_alg)
 
     while True:
         tries = 10
@@ -196,7 +197,8 @@ def rt_it_slow(hcv, kp_alg, des_alg, threads, cam_buf, stitch_buf, frames=200):
                         cam_buf, 
                         threads['cam_lock'],
                         stitch_buf,
-                        threads['stitch_lock']
+                        threads['stitch_lock'],
+                        threads['viewer']
                     )
             if done:
                 print '.',
@@ -208,7 +210,6 @@ def rt_it_slow(hcv, kp_alg, des_alg, threads, cam_buf, stitch_buf, frames=200):
                 if tries == 0:
                     print 'Start New sequence'
                     out = rt_blocking_pop(cam_buf, threads['cam_lock'])
-                    threads['viewer2'].show_kp(out, kp_alg)
 
     print 'Done!!'
 
@@ -275,13 +276,11 @@ def rt_test():
     bufferer = ImageBuffer(cap, cam_buf, cam_buf_size, cam_thread_lock)
     stitcher = StitchBuffer(kp_alg, des_alg, stitch_buf, stitch_buf_size, stitch_thread_lock)
     viewer = ImageViewer()
-    viewer2 = ImageViewer()
 
     threads = dict()
     threads['bufferer'] = bufferer
     threads['stitcher'] = stitcher
     threads['viewer'] = viewer
-    threads['viewer2'] = viewer2
     threads['cam_lock'] = cam_thread_lock
     threads['stitch_lock'] = stitch_thread_lock
 
@@ -420,5 +419,5 @@ if __name__ == "__main__":
 
     #old_test()
     #test_on_files()
-    #rt_test()
-    rt_test_uno()
+    rt_test()
+    #rt_test_uno()
